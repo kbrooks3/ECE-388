@@ -22,30 +22,28 @@ int dig;
 char x, y;
 char strtarget[20];
 char stractual[20];
+char scl[4];
 
 int main(void)
 {
-   	DDRD = DDRD | 0b11111111;								//ports are output
-   	DDRB = DDRB | 0b11111111;
-   	DDRC = DDRC | 0b00100000;
+   	DDRD = DDRD | 0b11110000;	//d4-7 output to screen
+   	//DDRB = DDRB | 0b11111111;	//NEEDS TO BE CHANGED FOR ENCODER AND SERVO
+   	DDRC = DDRC | 0b00010111;	//c[0-2] (RS, RW, and E) and 4 (Trig) set to output
+	DDRC = DDRC & 0b11010111;	//c3 (Switch) and 5 (Echo) set to input
 
-	//DDRC = DDRC | 0b00100000;
-	
-	
-	//Timer 0 is to strobe the LED
-	
-	//Timer 1 is simply a counter
-	//TCNT1 = 0;											//max value based on inches per cycle
+	//Timer for sensor
 	TCCR1A = (0b00<<COM1A0)|(0b00<<COM1B0)|(0b00<<WGM10);	//Normal Mode
-	TCCR1B = (0b0<<WGM12)|(0b011<<CS10);					//clock scalar by 64
-	TIMSK1 = (0b0<<TOIE1);									//disable interrupts for timer1
+	TCCR1B = (0b0<<WGM12)|(0b010<<CS10);			//clock scalar by 8
+	TIMSK1 = (0b0<<TOIE1);					//disable interrupts for timer1
 	
-											//C function to enable global interrupts
+	sei();							//C function to enable global interrupts
 	
     while (1) 
     {
-	sprintf(strtarget,"%.4d inches SCL",val);			//val becomes a string
-	sprintf(stractual,"%.4d inches WUT",val);			//val becomes a string
+	sprintf(strtarget,"%.4d in SCL",val);			//val becomes a string
+	//The line below needs to be changed to include a character string for scl
+	//Something like sprintf(stractual,"%.4d in %c", val, scl); 
+	sprintf(stractual,"%.4d in WUT",val);			//val becomes a string
 	lcdinitialize();
 	lcd_gotoxy(1,1);						//write on the first line
 	lcdprint(strtarget);							//that string is sent to the LCD
@@ -66,7 +64,8 @@ int main(void)
 		{
 			
 		}
-		
+		//These values need to be changed to account for the increase in resolution and faster clock
+	    	
 		if (TCNT1 >= 2664)
 		{
 			val = 9999;
@@ -77,7 +76,7 @@ int main(void)
 		}
 	
     
-	_delay_ms(250);
+	_delay_ms(10);
 	}
 }
 
@@ -86,10 +85,8 @@ int main(void)
 
 void lcdinitialize()	//starts the LCD
 {
-	PORTB = PORTB&(0<<2);	
+	PORTC = PORTC&(0<<2);	
 	_delay_us(2000);
-	//lcdcommand(0x33);	//8 bit bus mode
-	//lcdcommand(0x32);	//8 bit bus mode
 	lcdcommand(0x28);	//4 bit bus mode, 2 line display, 5x11 display
 	lcdcommand(0x0E);	//display on, cursor on, blink off
 	lcdcommand(0x01);	//clear display
@@ -100,15 +97,15 @@ void lcdinitialize()	//starts the LCD
 void lcdcommand(char cmnd)
 {
 	PORTD = (PORTD&0x0F)|(cmnd&0xF0);	//cmnd sent 4 bits at a time because in 4 bit mode
-	PORTB = 0b00000100;	//enable 1
+	PORTC = 0b00000100;	//enable 1
 	
 	_delay_us(1);
-	PORTB = 0b00000000;	//enable 0
+	PORTC = 0b00000000;	//enable 0
 	_delay_us(100);
 	PORTD = (PORTD&0x0F)|(cmnd<<4);
-	PORTB = 0b00000100;	//enable 1
+	PORTC = 0b00000100;	//enable 1
 	_delay_us(1);
-	PORTB = 0b00000000;	//enable 0
+	PORTC = 0b00000000;	//enable 0
 	_delay_us(100);
 	
 }
@@ -133,15 +130,15 @@ void lcdprint( char * str )		//sets up array to print
 void lcddata(char data)
 {
 	PORTD = (PORTD&0x0F)|(data&0xF0);	//mask off high byte of character sent
-	PORTB = 0b00000101;	//RS is 1
-		//RW is 0
-	 //enable is 1
+	PORTC = 0b00000101;	//RS is 1
+				//RW is 0
+	 			//enable is 1
 	_delay_us(1);
-	PORTB = 0b00000001;	//enable is 0
+	PORTC = 0b00000001;	//enable is 0
 	PORTD = (PORTD&0x0F)|(data<<4);
-	PORTB = 0b00000101;
+	PORTC = 0b00000101;
 	_delay_us(1);
-	PORTB = 0b00000001;
+	PORTC = 0b00000001;
 	_delay_us(100);
 	
 }
