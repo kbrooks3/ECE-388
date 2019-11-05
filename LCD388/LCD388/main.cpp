@@ -1,6 +1,7 @@
 /*
 Updated 11/5/19 to add all of the code for the peripherals.
-The only glaring thing that needs to be edited is the 
+The only glaring thing that needs to be edited is the DSCALAR value needs to be determined,
+and the increased resolution of the sensor timer needs to be accounted for.
  */ 
 #include <stdio.h>
 #include <stdlib.h>
