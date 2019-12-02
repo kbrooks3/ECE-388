@@ -1,9 +1,12 @@
 
 /*
-AS OF 11/14/19
+AS OF 11/26/19
 THIS IS ITERATIVE CODE TO TRY TO GET EVERYTHING WORKING
 
-	1. INCORPORATE THE MOTOR (TEST: DOES IT TURN AT ALL? CAN IT TURN APPROPRIATELY?)
+	1. CHANGE THE PRECISION OF DISTANCE/SOUND/TARGETX
+	2. LIMIT TARGETX TO 12-18 INCHES
+	POST-HARDWARE
+	3. DETERMINE BALL POSITION
 	
   
  */ 
@@ -13,20 +16,20 @@ THIS IS ITERATIVE CODE TO TRY TO GET EVERYTHING WORKING
 #include <stdlib.h>
 
 #define	LCD_DPRT  PORTD
-#define	LCD_DDDR  DDRD
+#define	LCD_DDDR  DDRD                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
 #define	LCD_DPIN  PIND
 #define	LCD_CPRT  PORTC
 #define	LCD_CDDR  DDRC
-#define	LCD_CPIN  PINB
+//#define	LCD_CPIN  PINB
 #define	LCD_RS  0
 #define	LCD_RW  1
 #define	LCD_EN  2
 
-#define LEFT 3200 	//timer length
-#define RIGHT 2400 	//timer length
-#define CENTER 2800 	//timer length
+#define LEFT 3000 	//timer length
+#define RIGHT 2000 	//timer length
+#define CENTER 2500 	//timer length
 
-uint16_t Distance=1234;
+uint16_t Distance;
 float sound = 13503.9;
 float Reading; 
 #define F_CPU 16000000
@@ -37,10 +40,12 @@ char stractual[20];
 char strscale[4];
 
 
-//volatile uint32_t targetx = 0; //inches
-int targetx = 0;
+volatile int32_t targetx = 0; //inches
+volatile int32_t old_targetx = 0;
+//int targetx = 0;
+volatile int32_t deltax = 0;
 volatile uint32_t button = 0;
-volatile uint32_t scale = 1; //change to data type with better precision
+volatile int32_t scale = 1; //change to data type with better precision
 char SCL[4];
 
 void lcdCommand( unsigned char cmnd );
@@ -49,20 +54,25 @@ void lcd_init();
 void lcd_gotoxy(unsigned char x, unsigned char y);
 void lcd_print(char * str );
 
-void tilt(int targetx);
+void tilt(volatile int32_t targetx);
 void angle(int direction);
 
 int main(void)
 {
 	uint16_t ticks;
 	DDRC= 1<<5;
+	//DDRC= 0<<4;
 	DDRB |= 1<<1;//(DDRB | 0b00000010);	//b1 = PWM
 	DDRB = 0<<0;
 	DDRB = 0<<2;//(DDRB & 0b11111010); 	//set b2 and b0 to input, connected to CLK and DT
+	
+	DDRB |= 1<<1;//(DDRB | 0b00000010);	//b1 = PWM
+	
 	char str[20]; 
 	
 	PCICR |= (1<<PCIE0);
-		PCMSK0 |= (1<<0); //Pin B1 interrupt
+		PCMSK0 |= (1<<0); //Pin B0 interrupt
+		PCMSK0 |= (0<<1); //disable b1 interrupt
 		PCICR |= (1<<PCIE1);
 		PCMSK1 |= (1<<3); //Pin C3 interrupt
 
@@ -93,21 +103,41 @@ int main(void)
 		lcd_print(stractual);
 		lcd_print(SCL);
 		
-		tilt(targetx);
+
+		//targetx = 3;
+		deltax = Distance - targetx;
+
+
+		tilt(deltax);	
+		//angle(LEFT);
+		//OCR1A = 3000;
+		//_delay_ms(1000);
 		//angle(CENTER);
+		//OCR1A = 2500;
+		//_delay_ms(2000);		
+		//angle(RIGHT);
+		//OCR1A = 2000;
+		//_delay_ms(1000);
 		
 		
-		PORTC=1<<PINC5;
+		
+		
+		
+		//_delay_ms(200);
+		//angle(CENTER);
+
+		
+		
+		PORTC=1<<PINC5; //PIN C5 is trigger
 		_delay_us(10);
 		PORTC=0<<PINC5;
 
-		while ((PINC&(0b00010000))<=0b00001111)   //   while (((PINC)&(1<<PINC4))==0)
-		;
+		while ((PINC&(0b00010000))<=0b00001111){   //   while (((PINC)&(1<<PINC4))==0)
 		TCNT3=0;
-		
-		while ((PINC&(0b00010000))>=0b00010000) //   while (((PINC)&(1<<PINC4))==1)
-		;
+		}
+		while ((PINC&(0b00010000))>=0b00010000) {		//   while (((PINC)&(1<<PINC4))==1)
 		ticks=TCNT3;
+		}
 		if(ticks >= 2375)
 		{
 			Distance = 9999;
@@ -119,7 +149,7 @@ int main(void)
 		}
 		
 
-		_delay_ms(10);
+		_delay_ms(20);
 	}
 }
 
@@ -227,20 +257,24 @@ ISR(PCINT1_vect) //Pin C3 (button) interrupt
 	}
 }
 
-void tilt(int targetx)
+void tilt(volatile int32_t targetx)
 {
-	if (targetx > 0)
+	if (targetx < 0)
 	{
 		angle(RIGHT);
 		//_delay_ms(abs(deltax)*DSCALER);
 		//angle(CENTER);
 	}
 	
-	if (targetx < 0)
+	if (targetx > 0)
 	{
 		angle(LEFT);
 		//_delay_ms(abs(deltax)*DSCALER);
 		//angle(CENTER);
+	}
+	
+	if (targetx == 0){
+		angle(CENTER);
 	}
 }
 
