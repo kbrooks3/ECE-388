@@ -3,10 +3,9 @@
 AS OF 11/26/19
 THIS IS ITERATIVE CODE TO TRY TO GET EVERYTHING WORKING
 
-	1. CHANGE THE PRECISION OF DISTANCE/SOUND/TARGETX
-	2. LIMIT TARGETX TO 12-18 INCHES
+	1. GET TARGETXTENTH TO DISPLAY
 	POST-HARDWARE
-	3. DETERMINE BALL POSITION
+	2. DETERMINE BALL POSITION
 	
   
  */ 
@@ -20,7 +19,6 @@ THIS IS ITERATIVE CODE TO TRY TO GET EVERYTHING WORKING
 #define	LCD_DPIN  PIND
 #define	LCD_CPRT  PORTC
 #define	LCD_CDDR  DDRC
-//#define	LCD_CPIN  PINB
 #define	LCD_RS  0
 #define	LCD_RW  1
 #define	LCD_EN  2
@@ -30,7 +28,9 @@ THIS IS ITERATIVE CODE TO TRY TO GET EVERYTHING WORKING
 #define CENTER 2500 	//timer length
 
 uint16_t Distance;
-float sound = 13503.9;
+float sound = 135039;
+int soundtenths = 135039;
+int DistanceTenths;
 float Reading; 
 #define F_CPU 16000000
 #include <util/delay.h>
@@ -40,9 +40,11 @@ char stractual[20];
 char strscale[4];
 
 
-volatile int32_t targetx = 0; //inches
-volatile int32_t old_targetx = 0;
-//int targetx = 0;
+volatile int32_t targetx = 80; //inches
+volatile int32_t targetxtenth = (targetx % 10);
+volatile int32_t targetxwhole = (targetx / 10);
+
+
 volatile int32_t deltax = 0;
 volatile uint32_t button = 0;
 volatile int32_t scale = 1; //change to data type with better precision
@@ -59,6 +61,8 @@ void angle(int direction);
 
 int main(void)
 {
+	scale = 10;
+	sprintf(SCL,"1in");
 	uint16_t ticks;
 	DDRC= 1<<5;
 	//DDRC= 0<<4;
@@ -76,7 +80,7 @@ int main(void)
 		PCICR |= (1<<PCIE1);
 		PCMSK1 |= (1<<3); //Pin C3 interrupt
 
-	
+	//Sensor timer
 	TCCR3A=(0b00<<COM3A0)|(0b00<<COM3B0)|(0b00<<WGM30);
 	TCCR3B=(0b00<<WGM32)|(0b100<<CS30);
 	TIMSK3 = (0b0<<TOIE3);
@@ -92,10 +96,8 @@ int main(void)
 	while (1)
 	{
 		
-		sprintf(strtarget,"%.4d inches SCL",targetx);			//val becomes a string
-		sprintf(stractual,"%.4d inches ",Distance);			//val becomes a string
-		//sprintf(strscale,"%.4d", SCL);
-		//sprintf(SCL,"1");
+		sprintf(strtarget,"TO:  %.2d.%d in SCL",targetxwhole, targetxtenth);			//val becomes a string
+		sprintf(stractual,"AT:  %.2d.%d in ",Distance, DistanceTenths);			//val becomes a string
 		lcd_init();
 		lcd_gotoxy(1,1);
 		lcd_print(strtarget);							//that string is sent to the LCD
@@ -105,28 +107,10 @@ int main(void)
 		
 
 		//targetx = 3;
-		deltax = Distance - targetx;
+		deltax = targetx - Reading;
 
 
 		tilt(deltax);	
-		//angle(LEFT);
-		//OCR1A = 3000;
-		//_delay_ms(1000);
-		//angle(CENTER);
-		//OCR1A = 2500;
-		//_delay_ms(2000);		
-		//angle(RIGHT);
-		//OCR1A = 2000;
-		//_delay_ms(1000);
-		
-		
-		
-		
-		
-		//_delay_ms(200);
-		//angle(CENTER);
-
-		
 		
 		PORTC=1<<PINC5; //PIN C5 is trigger
 		_delay_us(10);
@@ -140,16 +124,21 @@ int main(void)
 		}
 		if(ticks >= 2375)
 		{
-			Distance = 9999;
+			Distance = 99;
+			DistanceTenths = 9;
 		}
 		else
 		{
 			Reading = ticks * (sound / 62500) / 2;
-			Distance = Reading;
+			Distance = Reading / 10;
+			DistanceTenths = Reading;
+			DistanceTenths = DistanceTenths % 10;
+			
+			
 		}
 		
 
-		_delay_ms(20);
+		_delay_ms(40);
 	}
 }
 
@@ -224,10 +213,18 @@ ISR(PCINT0_vect) //Pin B0 (rotation) interrupt
 		if ((PINB & 0b00000001) == 0b00000000) //counterclockwise
 		{
 			targetx = targetx - scale; //decrement by scale
+			targetxwhole = targetx / 10;
+			targetxtenth = targetx % 10;
+			if(targetx < 20)
+			targetx = 20;
 		}
 		else //clockwise
 		{
 			targetx = targetx + scale; //increment by scale
+			targetxwhole = targetx / 10;
+			targetxtenth = targetx % 10;
+			if(targetx > 180)
+			targetx = 180;
 		}
 	}
 }
@@ -239,16 +236,16 @@ ISR(PCINT1_vect) //Pin C3 (button) interrupt
 		button = 1; // button is pressed
 		// Change scale based on previous scale
 		if (scale == 1){
-			scale = 2; 	// 1 / 4 inch scale
-			sprintf(SCL,"1/4");
+			scale = 5; 	
+			sprintf(SCL,"0.5");
 		}
-		else if (scale == 2){
-			scale = 3; 	// 1 / 40 inch scale
-			sprintf(SCL,"1/40");
+		else if (scale == 5){
+			scale = 10; 	
+			sprintf(SCL,"1in");
 		}
-		else if (scale == 3){
-			scale = 1; 	// 1 inch scale
-			sprintf(SCL,"1");
+		else if (scale == 10){
+			scale = 1; 	
+			sprintf(SCL,"0.1");
 		}
 	}
 	else
@@ -257,7 +254,7 @@ ISR(PCINT1_vect) //Pin C3 (button) interrupt
 	}
 }
 
-void tilt(volatile int32_t targetx)
+void tilt(volatile int32_t targetx) // this is actually deltax getting passed, don't worry
 {
 	if (targetx < 0)
 	{
