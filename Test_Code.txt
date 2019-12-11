@@ -1,0 +1,315 @@
+/*
+ * PingPongTest.c
+ *
+ * Created: 10/22/2019 11:15:22 AM
+ * Author : The Chupacabras
+ */ 
+
+#include <avr/io.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <util/delay.h>
+#include <avr/interrupt.h>
+#define F_CPU 16000000
+
+//Servo pulse lengths
+#define LEFT 3000 	//timer length
+#define RIGHT 2000 	//timer length
+#define CENTER 2500 	//timer length
+
+//Sonic sensor
+uint16_t Distance;
+float sound = 135039;
+int soundtenths = 135039;
+int DistanceTenths;
+float Reading;
+uint16_t ticks; //was moved from main
+
+//Common integers
+volatile int32_t targetx = 80; //inches
+volatile int32_t targetxtenth = (targetx % 10); 
+volatile int32_t targetxwhole = (targetx / 10); 
+volatile int32_t deltax = 0; //rate of change of the ball, for velocity control
+
+//Rotary Encoder push button
+volatile uint32_t button = 0;
+volatile int32_t scale = 1; //change to data type with better precision
+char SCL[4]; //for LCD
+
+
+char strtestline1[20];
+char strtestline2[20];
+char strscale[4];
+
+//LCD Library
+#define	LCD_DPRT  PORTD
+#define	LCD_DDDR  DDRD
+#define	LCD_DPIN  PIND
+#define	LCD_CPRT  PORTC
+#define	LCD_CDDR  DDRC
+#define	LCD_RS  0
+#define	LCD_RW  1
+#define	LCD_EN  2
+//LCD prototypes
+void lcdCommand( unsigned char cmnd );
+void lcdData( unsigned char data );
+void lcd_init();
+void lcd_gotoxy(unsigned char x, unsigned char y);
+void lcd_print(char * str );
+
+//Servo prototypes
+void tilt(volatile int32_t targetx);
+void angle(int direction);
+
+int main(void)
+{
+	scale = 10; // 10 "deci-inches" (in x 10)
+	sprintf(SCL,"1in");
+	DDRC= 1<<5;
+	DDRB = 0<<0;
+	DDRB = 0<<2;//(DDRB & 0b11111010); 	//set b2 and b0 to input, connected to CLK and DT
+	
+	DDRB |= 1<<1;//(DDRB | 0b00000010);	//b1 = PWM output
+	
+	char str[20];
+	
+	//Interrupts
+	PCICR |= (1<<PCIE0);
+	PCMSK0 |= (1<<0); //Pin B0 interrupt (rotary encoder)
+	PCMSK0 |= (0<<1); //disable b1 interrupt (PWM)
+	PCICR |= (1<<PCIE1);
+	PCMSK1 |= (1<<3); //Pin C3 interrupt (push button)
+
+	//Sensor timer
+	TCCR3A=(0b00<<COM3A0)|(0b00<<COM3B0)|(0b00<<WGM30);
+	TCCR3B=(0b00<<WGM32)|(0b100<<CS30);
+	TIMSK3 = (0b0<<TOIE3);
+	
+	//Servo PWM setup
+	TCCR1A = (0b10 << COM1A0) | (0 << COM1B0) | (0b10 <<  WGM10); //
+	TCCR1B = (0b11 << WGM12) | (0b010 << CS10);
+	ICR1 = 40000; 						// 20ms with /8 prescalar
+	OCR1A = 1000; 						// 1000 -> 4000 (0.5 ms - 2 ms) // sets the duty cycle
+	
+	
+	sei();
+	
+	while (1)
+	{
+		
+		//LCD screen test code
+		/*
+		sprintf(strtestline1,"TEST STRING");			
+		sprintf(strtestline2,"SECOND LINE",);			
+		lcd_init();
+		lcd_gotoxy(1,1);
+		lcd_print(strtestline1);							//that string is sent to the LCD
+		lcd_gotoxy(1,2);						//write on the second line
+		lcd_print(strtestline2);
+		_delay_ms(40);  //to avoid flickering
+		*/
+		
+		//Servo motor test code
+		/*
+		angle(RIGHT);
+		_delay_ms(100); //Spin to right position and wait 0.1 seconds
+		angle(CENTER);
+		_delay_ms(200); //set to center and wait 0.2 seconds
+		angle(LEFT);
+		_delay_ms(100); ////left position for 0.1 seconds
+		*/
+		
+		//Sonic Sensor test code
+		/*
+		PORTC=1<<PINC5; //PIN C5 is trigger
+		_delay_us(10);  //send 10us pulse to activate
+		PORTC=0<<PINC5;
+
+		while ((PINC&(0b00010000))<=0b00001111){   //count while echo(PINC4) is 0
+			TCNT3=0;
+		}
+		while ((PINC&(0b00010000))>=0b00010000) { //read count 
+			ticks=TCNT3;
+		}
+		if(ticks >= 2375) //value too great
+		{
+			Distance = 99;
+			DistanceTenths = 9;
+		}
+		else //convert cycles to deci-inches
+		{
+			Reading = ticks * (sound / 62500) / 2;
+			Distance = Reading / 10;
+			DistanceTenths = Reading;
+			DistanceTenths = DistanceTenths % 10;
+		}
+		
+		sprintf(strtestline1," %.2d.%d ",Distance, DistanceTenths); //shows sonic sensor reading in inches
+		lcd_init();																
+		lcd_gotoxy(1,1);
+		lcd_print(strtestline1);
+		_delay_ms(40);  //to avoid flickering
+		*/
+		
+		//Rotary encoder test
+		/*
+		//interrupt is set up
+		sprintf(strtestline1,"TO:  %.2d.%d in SCL",targetxwhole, targetxtenth); //displays "8.0" to start
+		lcd_init();																//change with rotation / push button for scale
+		lcd_gotoxy(1,1);
+		lcd_print(strtestline1);
+		_delay_ms(40);  //to avoid flickering
+		*/
+		
+	}
+}
+
+void lcdCommand( unsigned char cmnd )
+{
+	LCD_DPRT = (LCD_DPRT&0x0F)|(cmnd & 0xF0);
+	LCD_CPRT &= ~ (1<<LCD_RS);
+	LCD_CPRT &= ~ (1<<LCD_RW);
+	LCD_CPRT |= (1<<LCD_EN);
+	_delay_us(1);
+	LCD_CPRT &= ~ (1<<LCD_EN);
+	_delay_us(100);
+	LCD_DPRT = (LCD_DPRT&0x0F)|(cmnd<<4);
+	LCD_CPRT |= (1<<LCD_EN);
+	_delay_us(1);
+	LCD_CPRT &= ~ (1<<LCD_EN);
+	_delay_us(100);
+}
+
+void lcdData( unsigned char data )
+{
+	LCD_DPRT = (LCD_DPRT&0x0F)|(data & 0xF0);
+	LCD_CPRT |= (1<<LCD_RS);
+	LCD_CPRT &= ~ (1<<LCD_RW);
+	LCD_CPRT |= (1<<LCD_EN);
+	_delay_us(1);
+	LCD_CPRT &= ~ (1<<LCD_EN);
+	LCD_DPRT = (LCD_DPRT&0x0F)|(data<<4);
+	LCD_CPRT |= (1<<LCD_EN);
+	_delay_us(1);
+	LCD_CPRT &= ~ (1<<LCD_EN);
+	_delay_us(100);
+}
+
+void lcd_init()
+{
+	LCD_DDDR = 0xFF;
+	LCD_CDDR = (LCD_CDDR | 0b00000111);
+	LCD_CPRT &=~(1<<LCD_EN);
+	lcdCommand(0x33);
+	lcdCommand(0x32);
+	lcdCommand(0x28);
+	lcdCommand(0x0e);
+	lcdCommand(0x01);
+	_delay_us(2000);
+	lcdCommand(0x06);
+}
+
+void lcd_gotoxy(unsigned char x, unsigned char y)
+{
+	unsigned char firstCharAdr[]={0x80,0xC0,0x94,0xD4} ;
+
+	lcdCommand(firstCharAdr[y-1] + x - 1);
+	_delay_us(100);
+}
+
+void lcd_print(char * str )
+{
+	unsigned char i = 0 ;
+
+	while(str[i]!=0)
+	{
+		lcdData(str[i]);
+		i++ ;
+	}
+}
+
+ISR(PCINT0_vect) //Pin B0 (rotation) interrupt
+{
+	if ((PINB & 0b00000100) == 0b00000000) //check falling edge
+	{
+		if ((PINB & 0b00000001) == 0b00000000) //counterclockwise
+		{
+			targetx = targetx - scale; //decrement by scale
+			targetxwhole = targetx / 10;
+			targetxtenth = targetx % 10;
+			if(targetx < 20)
+			targetx = 20;
+		}
+		else //clockwise
+		{
+			targetx = targetx + scale; //increment by scale
+			targetxwhole = targetx / 10;
+			targetxtenth = targetx % 10;
+			if(targetx > 180)
+			targetx = 180;
+		}
+	}
+}
+
+ISR(PCINT1_vect) //Pin C3 (button) interrupt (push button)
+{
+	if ((PINC & 0b00001000) == 0b00000000)
+	{
+		button = 1; // button is pressed
+		// Change scale based on previous scale
+		if (scale == 1){
+			scale = 5;
+			sprintf(SCL,"0.5");
+		}
+		else if (scale == 5){
+			scale = 10;
+			sprintf(SCL,"1in");
+		}
+		else if (scale == 10){
+			scale = 1;
+			sprintf(SCL,"0.1");
+		}
+	}
+	else
+	{
+		button = 0;
+	}
+}
+
+//Servo functions
+void tilt(volatile int32_t targetx) 
+{
+	if (targetx < 0)
+	{
+		angle(RIGHT);
+		//_delay_ms(abs(deltax)*DSCALER);
+		//angle(CENTER);
+	}
+	
+	if (targetx > 0)
+	{
+		angle(LEFT);
+		//_delay_ms(abs(deltax)*DSCALER);
+		//angle(CENTER);
+	}
+	
+	if (targetx == 0){
+		angle(CENTER);
+	}
+}
+
+void angle(int direction)
+{
+	if (direction == LEFT)
+	{
+		OCR1A = LEFT;	//change top value of timer to 3200 for 1.6 ms
+	}
+	else if (direction == RIGHT)
+	{
+		OCR1A = RIGHT;	//change top value of timer to 2400 for 1.2 ms
+	}
+	else
+	{
+		OCR1A = CENTER;	//change top value of timer to 2800 for 1.4 ms
+	}
+}
