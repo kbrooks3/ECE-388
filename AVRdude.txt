@@ -1,0 +1,5 @@
+M:\ECE-388\avrdude>avrdude -c usbtiny -p m328pb -v -v -v -U flash:w:U:\pingpongtestcode2\pingpongtestcode2\debug\pingpongtestcode2.hex:i
+
+//AVRDUDE code
+
+M:\ECE-388\avrdude>avrdude -c usbtiny -p m328pb -v -v -v -U flash:w:U:\iterativepingpongrev2\iterativepingpongrev2\debug\iterativepingpongrev2.hex:i
