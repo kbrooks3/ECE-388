@@ -23,9 +23,9 @@ THIS IS ITERATIVE CODE TO TRY TO GET EVERYTHING WORKING
 #define	LCD_RW  1
 #define	LCD_EN  2
 
-#define LEFT 3000 	//timer length
-#define RIGHT 2000 	//timer length
-#define CENTER 2500 	//timer length
+#define AWAYFROMSENSOR 2100 	//timer length
+#define TOSENSOR 2025 	//timer length
+#define CENTER 2050 	//timer length
 
 uint16_t Distance;
 float sound = 135039;
@@ -40,12 +40,19 @@ char stractual[20];
 char strscale[4];
 
 
-volatile int32_t targetx = 80; //inches
+volatile int32_t targetx = 100; //inches
 volatile int32_t targetxtenth = (targetx % 10);
 volatile int32_t targetxwhole = (targetx / 10);
 
+float kp = 220;
+float ki = 80;
+float kd = 1500;
+float dtemp = 0;
+float itemp = 0;
+float pidtemp = 2100;
 
 volatile int32_t deltax = 0;
+volatile int32_t olddeltax = 0;
 volatile uint32_t button = 0;
 volatile int32_t scale = 1; //change to data type with better precision
 char SCL[4];
@@ -56,7 +63,10 @@ void lcd_init();
 void lcd_gotoxy(unsigned char x, unsigned char y);
 void lcd_print(char * str );
 
-void tilt(volatile int32_t targetx);
+void PIDchange(float Reading, volatile int32_t targetx);
+void adjustpwm(float pwmduty);
+
+void tilt(volatile int32_t deltax, volatile int32_t olddeltax);
 void angle(int direction);
 
 int main(void)
@@ -88,8 +98,9 @@ int main(void)
 	TCCR1A = (0b10 << COM1A0) | (0 << COM1B0) | (0b10 <<  WGM10); //
 	TCCR1B = (0b11 << WGM12) | (0b010 << CS10);
 	ICR1 = 40000; 						// 20ms with /8 prescalar
-	OCR1A = 1000; 						// 1000 -> 4000 (0.5 ms - 2 ms) // sets the duty cycle
+	OCR1A = 2100; 						// 1000 -> 4000 (0.5 ms - 2 ms) // sets the duty cycle
 	
+	pidtemp = OCR1A;
 	
 	sei();
 	
@@ -107,10 +118,11 @@ int main(void)
 		
 
 		//targetx = 3;
+		olddeltax = deltax;
 		deltax = targetx - Reading;
 
 
-		tilt(deltax);	
+		//tilt(deltax, olddeltax);	
 		
 		PORTC=1<<PINC5; //PIN C5 is trigger
 		_delay_us(10);
@@ -126,10 +138,12 @@ int main(void)
 		{
 			Distance = 99;
 			DistanceTenths = 9;
+			//angle(AWAYFROMSENSOR);
+			adjustpwm(AWAYFROMSENSOR);
 		}
 		else
 		{
-			Reading = ticks * (sound / 62500) / 2;
+			Reading = ticks * (sound / 62500) / 1;
 			Distance = Reading / 10;
 			DistanceTenths = Reading;
 			DistanceTenths = DistanceTenths % 10;
@@ -137,8 +151,8 @@ int main(void)
 			
 		}
 		
-
-		_delay_ms(40);
+		PIDchange(Reading, targetx);
+		_delay_ms(5);
 	}
 }
 
@@ -217,6 +231,7 @@ ISR(PCINT0_vect) //Pin B0 (rotation) interrupt
 			targetxtenth = targetx % 10;
 			if(targetx < 20)
 			targetx = 20;
+			
 		}
 		else //clockwise
 		{
@@ -254,39 +269,82 @@ ISR(PCINT1_vect) //Pin C3 (button) interrupt
 	}
 }
 
-void tilt(volatile int32_t targetx) // this is actually deltax getting passed, don't worry
+/*void tilt(volatile int32_t deltax, volatile int32_t olddeltax) // this is actually deltax getting passed, don't worry
 {
-	if (targetx < 0)
+	if (deltax < 0)
 	{
-		angle(RIGHT);
-		//_delay_ms(abs(deltax)*DSCALER);
-		//angle(CENTER);
+		
+		angle(TOSENSOR);
+		
 	}
 	
-	if (targetx > 0)
+	if (deltax > 0)
 	{
-		angle(LEFT);
-		//_delay_ms(abs(deltax)*DSCALER);
-		//angle(CENTER);
+		
+		angle(AWAYFROMSENSOR);
+		
 	}
 	
-	if (targetx == 0){
+	if (deltax == 0){
 		angle(CENTER);
 	}
-}
+}*/
 
 void angle(int direction)
 {
-	if (direction == LEFT)
+	if (direction == AWAYFROMSENSOR)
 	{
-		OCR1A = LEFT;	//change top value of timer to 3200 for 1.6 ms
+		OCR1A = AWAYFROMSENSOR;	//change top value of timer to 3200 for 1.6 ms
 	}
-	else if (direction == RIGHT)
+	else if (direction == TOSENSOR)
 	{
-		OCR1A = RIGHT;	//change top value of timer to 2400 for 1.2 ms
+		OCR1A = TOSENSOR;	//change top value of timer to 2400 for 1.2 ms
 	}
 	else
 	{
 		OCR1A = CENTER;	//change top value of timer to 2800 for 1.4 ms
 	}
+}
+
+void adjustpwm(float pwmduty)
+{
+	OCR1A = pwmduty;
+}
+
+void PIDchange(float Reading, volatile int32_t targetx)
+{
+	float imax = 100;
+	float imin = -100;
+	float errorvalue;
+	float pterm;
+	float iterm;
+	float dterm;
+	int newreading;
+	float pwmduty;
+	newreading = Reading;
+	errorvalue = (targetx - newreading);
+	pterm = kp * errorvalue;
+	itemp += errorvalue;
+	if (itemp > imax)
+	{
+		itemp = imax;
+	}
+	else if (itemp < imin)
+	{
+		itemp = imin;
+	}
+	iterm = ki * itemp;
+	dterm = kd * (dtemp - errorvalue);
+	dtemp = errorvalue;
+	pwmduty = pidtemp - (pterm + iterm + dterm);
+	if (pwmduty > 2250)	//towards sensor
+	{
+		pwmduty = 2250;
+	}
+	else if (pwmduty < 2075)	//away from sensor
+	{
+		pwmduty = 2075;
+	}
+	adjustpwm(pwmduty);
+	pidtemp = pwmduty;
 }
